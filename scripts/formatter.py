@@ -2,16 +2,18 @@
 import json, base64, os, sys, argparse
 from datetime import datetime
 
-def load_nodes(workspace):
+def load_nodes(workspace, allow_raw=False):
     tested = os.path.join(workspace, "nodes_tested.json")
-    raw = os.path.join(workspace, "nodes_raw.json")
     if os.path.exists(tested):
         with open(tested, 'r', encoding='utf-8') as f: data = json.load(f)
         return [n for n in data.get("nodes", []) if n.get("alive", True)]
-    elif os.path.exists(raw):
-        with open(raw, 'r', encoding='utf-8') as f: data = json.load(f)
-        return data.get("nodes", [])
-    else: print("No nodes found."); sys.exit(1)
+    if allow_raw:
+        raw = os.path.join(workspace, "nodes_raw.json")
+        if os.path.exists(raw):
+            with open(raw, 'r', encoding='utf-8') as f: data = json.load(f)
+            print("⚠️  Untested nodes — tester did not run.")
+            return data.get("nodes", [])
+    print("No tested nodes. Run tester.py first (or use --allow-raw for untested)."); sys.exit(1)
 
 def format_text(nodes, top=5):
     lines = ["Scientific Internet Access", datetime.now().strftime('%Y-%m-%d %H:%M'), ""]
@@ -47,9 +49,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--format", "-f", default="text", choices=["text","clash","v2ray","base64"])
     parser.add_argument("--top", "-t", type=int, default=5)
+    parser.add_argument("--allow-raw", action="store_true", help="fall back to untested raw nodes")
     args = parser.parse_args()
     workspace = os.environ.get("OPENCLAW_WORKSPACE", os.path.expanduser("~/.openclaw/workspace"))
-    nodes = load_nodes(workspace)
+    nodes = load_nodes(workspace, args.allow_raw)
     formatters = {"text": format_text, "clash": format_clash, "base64": format_base64, "v2ray": lambda n,t: json.dumps([x.get("raw","") for x in n[:t]])}
     print(formatters[args.format](nodes, args.top))
 

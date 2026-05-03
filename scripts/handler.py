@@ -22,10 +22,25 @@ def step2_run(choice):
     if choice not in fmt_map:
         choice = '3'
     fmt, client = fmt_map[choice]
-    subprocess.run([sys.executable, os.path.join(skill_dir, 'scraper.py')], capture_output=True, cwd=skill_dir)
-    subprocess.run([sys.executable, os.path.join(skill_dir, 'tester.py')], capture_output=True, cwd=skill_dir)
-    result = subprocess.run([sys.executable, os.path.join(skill_dir, 'formatter.py'), '--format', fmt, '--top', '5'], capture_output=True, text=True, cwd=skill_dir)
-    config = result.stdout.strip() if result.stdout.strip() else '暂时没有可用节点，稍后再试。'
+
+    # Step 1: scrape
+    r = subprocess.run([sys.executable, os.path.join(skill_dir, 'scraper.py')], capture_output=True, cwd=skill_dir)
+    if r.returncode != 0:
+        print(f"Scraper failed:\n{r.stderr.decode(errors='replace')}")
+        return
+
+    # Step 2: test — surface output so user sees warnings + confirmation prompt
+    r = subprocess.run([sys.executable, os.path.join(skill_dir, 'tester.py')], capture_output=False, cwd=skill_dir)
+    if r.returncode != 0:
+        print("Testing aborted or failed. No usable nodes.")
+        return
+
+    # Step 3: format — tested nodes only, no raw fallback
+    r = subprocess.run([sys.executable, os.path.join(skill_dir, 'formatter.py'), '--format', fmt, '--top', '5'], capture_output=True, text=True, cwd=skill_dir)
+    if r.returncode != 0:
+        print(f"Formatting failed:\n{r.stderr}")
+        return
+    config = r.stdout.strip() if r.stdout.strip() else '暂时没有可用节点，稍后再试。'
     print(f"""找到可用节点：
 
 {config}
