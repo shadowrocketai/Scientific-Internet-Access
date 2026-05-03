@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
-"""Filtered TCP connectivity tester with address/port validation."""
+"""Filtered TCP connectivity tester with address/port validation + DNS resolution."""
 import json, socket, time, os, sys, concurrent.futures, ipaddress
 from datetime import datetime
 
-# Common proxy ports (allowlist)
+# Common proxy ports only (no SSH/MySQL/VNC etc.)
 ALLOWED_PORTS = {
-    80, 443, 8080, 8443, 9090, 9999,
-    22, 2222, 3306, 3389, 5432, 5900, 5901,
+    80, 443, 8080, 8443,
     1080, 1088, 2082, 2083, 2086, 2087, 2095, 2096,
     3000, 3001, 4000, 5000, 6000, 7000, 8000, 8888, 9000,
-    10000, 20000, 30000,
+    9090, 9999, 10000, 20000, 30000,
 }
-
-# Port ranges allowed (inclusive)
 ALLOWED_PORT_RANGES = [(30000, 45000), (40000, 60000)]
+
+RESERVED_PREFIXES = [
+    '10.', '127.', '169.254.', '192.168.',
+    '0.', '100.64.', '198.18.', '198.19.',
+]
+RESERVED_PREFIXES6 = ['fc', 'fd', 'fe80', '::1', '::']
 
 def port_allowed(port):
     if not isinstance(port, int) or port < 1 or port > 65535:
@@ -25,17 +28,63 @@ def port_allowed(port):
             return True
     return False
 
-def is_safe_address(host):
-    """Reject private, loopback, link-local, reserved, multicast, unspecified."""
+def _is_reserved_ip_str(ip_str):
+    """Fast string-based check for private/reserved IPv4/v6 without ipaddress."""
+    ip_str = ip_str.strip()
+    if '.' in ip_str:  # IPv4
+        for p in RESERVED_PREFIXES:
+            if ip_str.startswith(p):
+                return True
+        return False
+    else:  # IPv6
+        low = ip_str.lower()
+        for p in RESERVED_PREFIXES6:
+            if low.startswith(p):
+                return True
+        return False
+
+def resolve_and_filter(host):
+    """
+    Resolve hostname to IPs, return (safe_ip, error_reason).
+    Returns (None, reason) if all resolved addresses are unsafe.
+    """
+    if not host:
+        return None, "empty_host"
+    # If it's already an IP literal, check directly
     try:
         ip = ipaddress.ip_address(host)
         if any([ip.is_private, ip.is_loopback, ip.is_link_local,
                 ip.is_reserved, ip.is_multicast, ip.is_unspecified]):
-            return False
-        return True
+            return None, f"unsafe_ip:{host}"
+        return host, None  # safe IP literal
     except ValueError:
-        # Not an IP literal; could be a hostname, allow through
-        return True
+        pass  # hostname, resolve below
+
+    # Resolve hostname to IPs
+    try:
+        addrs = socket.getaddrinfo(host, None)
+    except Exception:
+        return None, f"resolve_failed:{host}"
+
+    safe_ips = []
+    for fam, _, _, _, sockaddr in addrs:
+        ip_str = sockaddr[0]
+        if fam != socket.AF_INET and fam != socket.AF_INET6:
+            continue
+        is_ipv6 = (fam == socket.AF_INET6)
+        # Strip IPv6 scope id if present
+        if is_ipv6 and '%' in ip_str:
+            ip_str = ip_str.split('%')[0]
+        # Check if reserved
+        if _is_reserved_ip_str(ip_str):
+            continue
+        safe_ips.append(ip_str)
+
+    if not safe_ips:
+        return None, f"all_resolved_private:{host}"
+
+    # Return the first safe IP (most proxy nodes have one public IP)
+    return safe_ips[0], None
 
 def test_tcp(server, port, timeout=5):
     try:
@@ -58,18 +107,23 @@ def test_node(node):
     node["latency"] = -1
     node["speed_rating"] = "Dead"
     node["skip_reason"] = None
+    node["resolved_ip"] = None
 
     if not server or not port:
         node["skip_reason"] = "missing_server_or_port"
         return node
-    if not is_safe_address(server):
-        node["skip_reason"] = f"unsafe_address:{server}"
+
+    # Resolve and filter
+    safe_ip, reason = resolve_and_filter(server)
+    if reason:
+        node["skip_reason"] = reason
         return node
     if not port_allowed(port):
         node["skip_reason"] = f"port_not_allowed:{port}"
         return node
 
-    alive, latency = test_tcp(server, port)
+    node["resolved_ip"] = safe_ip
+    alive, latency = test_tcp(safe_ip, port)
     node["alive"] = alive
     node["latency"] = latency
     if alive:
@@ -95,10 +149,15 @@ def main():
     max_test = int(os.environ.get("MAX_TEST_NODES", 50))
     test_nodes = nodes[:max_test]
 
-    # Pre-filter: show counts
+    # Pre-filter: resolve and show counts
     total = len(test_nodes)
-    safe = sum(1 for n in test_nodes if is_safe_address(n.get("server","")) and port_allowed(n.get("port",0)))
-    unsafe = total - safe
+    safe = 0; unsafe = 0
+    for n in test_nodes:
+        safe_ip, reason = resolve_and_filter(n.get("server", ""))
+        if reason or not port_allowed(n.get("port", 0)):
+            unsafe += 1
+        else:
+            safe += 1
     print(f"Nodes to test: {total} total, {safe} safe, {unsafe} filtered out")
     if safe == 0:
         print("No testable nodes after address/port filtering.")
@@ -124,6 +183,7 @@ def main():
             tested.append(n)
             done += 1
             if n.get("skip_reason"):
+                ip_str = n.get("resolved_ip", "") or n.get("server", "?")
                 print(f"  [{done}/{total}] {n.get('server','?')}:{n.get('port',0)} -> skipped ({n['skip_reason']})")
             elif n['alive']:
                 alive_count += 1
@@ -136,12 +196,12 @@ def main():
         not x['alive'],
         x['latency'] if x['latency'] > 0 else 99999
     ))
-    print(f"\nAlive: {alive_count}, Dead: {len(tested) - alive_count}, Skipped: {unsafe}")
+    print(f"\nAlive: {alive_count}, Dead: {len(tested) - alive_count - unsafe}, Skipped: {unsafe}")
     result = {
         "tested_at": datetime.now().isoformat(),
         "total_tested": len(tested),
         "alive": alive_count,
-        "dead": len(tested) - alive_count,
+        "dead": len(tested) - alive_count - unsafe,
         "skipped": unsafe,
         "nodes": tested
     }

@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.3] - 2026-05-03
+### Fixed
+- tester.py: DNS resolve hostnames before testing; reject resolved private/reserved IPs
+- Narrowed ALLOWED_PORTS to proxy-only ports (removed SSH/MySQL/VNC)
+- ClawHub hostname resolution finding resolved
+
+
 ## [1.8.2] - 2026-05-03
 ### Fixed
 - tester.py: address filtering (private/loopback/link-local/reserved blocked), port allowlist, confirmation prompt

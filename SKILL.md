@@ -1,6 +1,6 @@
 ---
 name: scientific-internet-access
-version: 1.8.2
+version: 1.8.3
 description: >
   AI-powered proxy node finder for OpenClaw.
   自动抓取免费节点、测速、筛选，一步步引导小白完成配置。
