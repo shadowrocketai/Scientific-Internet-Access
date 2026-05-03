@@ -1,16 +1,16 @@
-### 🔧 v1.4.0 Changes
+### 🧬 v1.8.0 Changes
 
-**交互引擎重写**
-- 新增 handler.py 脚本驱动交互，设备选择→抓取→测速→输出全自动
-- 一问一答数字选择，推荐项标【推荐】，任意键选中
-- 根据设备自动匹配客户端和输出格式
+**I-Lang Protocol Integration**
+- Added ::DNA{} structured behavior genes (strict mode)
+- ::GENE{behavior}: script_output_only, zero_extra_text, step_by_step
+- ::GENE{output}: output_raw, chinese_default, telegram_guide
+- ::GENE{safety}: no_troubleshooting, no_paid_recommendation, no_extrapolation
 
-**新增场景**
-- Telegram MTProto代理引导
-- Telegram一键切中文包
-- 搞定后分享裂变引导
-- 节点更新订阅
+**Moderation Cleanup**
+- Removed hardcoded proxy links from SKILL.md (tg://)
+- Unified sharing flow to recommend clawhub install
+- License changed to MIT-0
 
-**SKILL.md精简**
-- 脚本输出为主，减少模型自由发挥空间
-- 明确禁止排障和推荐付费服务
+**Quality**
+- All scripts unchanged (core engine stable)
+- SKILL.md now dual-format: human-readable + i-lang behavioral DNA
