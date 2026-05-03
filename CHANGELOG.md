@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.2] - 2026-05-03
+### Fixed
+- tester.py: address filtering (private/loopback/link-local/reserved blocked), port allowlist, confirmation prompt
+- ClawHub scan: resolve "Tool Misuse" finding re arbitrary TCP connections
+
+
 ## [1.8.0] - 2026-05-03
 ### Added
 - I-Lang v3.0 ::DNA{} behavioral DNA integration
